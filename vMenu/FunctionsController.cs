@@ -997,7 +997,7 @@ namespace vMenuClient
                     }
                 }
 
-                if (GetProfileSetting(221) == 1) // 221 = settings > display > expanded radar
+                /*if (GetProfileSetting(221) == 1) // 221 = settings > display > expanded radar
                 {
                     SetBigmapActive(true, false);
                 }
@@ -1021,7 +1021,7 @@ namespace vMenuClient
                             radarSwitchTimer = GetGameTimer();
                         }
                     }
-                }
+                }*/
             }
             else
             {
