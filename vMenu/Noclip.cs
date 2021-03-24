@@ -18,7 +18,7 @@ namespace vMenuClient
         private static bool NoclipActive { get; set; } = false;
         private static int MovingSpeed { get; set; } = 0;
         private static int Scale { get; set; } = -1;
-        private static bool FollowCamMode { get; set; } = false;
+        private static bool FollowCamMode { get; set; } = true;
 
 
         private List<string> speeds = new List<string>()
@@ -35,18 +35,6 @@ namespace vMenuClient
 
         public NoClip()
         {
-#if DEBUG
-            RegisterCommand("noclip", new Action(() =>
-            {
-                NoclipActive = !NoclipActive;
-            }), true);
-
-#endif
-            //EventHandlers.Add("SetNoclipActive", new Action<bool>(SetNoclipActive));
-            //EventHandlers.Add("ToggleNoclip", new Action(() => SetNoclipActive(!NoclipActive)));
-            //Exports.Add("SetNoclipActive", new Action<bool>(SetNoclipActive));
-            //Exports.Add("IsNoclipActive", new Func<bool>(IsNoclipActive));
-
             Tick += NoClipHandler;
         }
 
@@ -170,11 +158,11 @@ namespace vMenuClient
                     {
                         yoff = -0.5f;
                     }
-                    if (Game.IsDisabledControlPressed(0, Control.MoveLeftOnly))
+                    if (!FollowCamMode && Game.IsDisabledControlPressed(0, Control.MoveLeftOnly))
                     {
                         SetEntityHeading(Game.PlayerPed.Handle, GetEntityHeading(Game.PlayerPed.Handle) + 3f);
                     }
-                    if (Game.IsDisabledControlPressed(0, Control.MoveRightOnly))
+                    if (!FollowCamMode && Game.IsDisabledControlPressed(0, Control.MoveRightOnly))
                     {
                         SetEntityHeading(Game.PlayerPed.Handle, GetEntityHeading(Game.PlayerPed.Handle) - 3f);
                     }
@@ -196,13 +184,13 @@ namespace vMenuClient
                 {
                     moveSpeed *= 1.8f;
                 }
+                moveSpeed = moveSpeed / (1f / GetFrameTime()) * 60;
                 newPos = GetOffsetFromEntityInWorldCoords(noclipEntity, 0f, yoff * (moveSpeed + 0.3f), zoff * (moveSpeed + 0.3f));
 
                 var heading = GetEntityHeading(noclipEntity);
                 SetEntityVelocity(noclipEntity, 0f, 0f, 0f);
                 SetEntityRotation(noclipEntity, 0f, 0f, 0f, 0, false);
                 SetEntityHeading(noclipEntity, FollowCamMode ? GetGameplayCamRelativeHeading() : heading);
-
                 SetEntityCollision(noclipEntity, false, false);
                 SetEntityCoordsNoOffset(noclipEntity, newPos.X, newPos.Y, newPos.Z, true, true, true);
 

@@ -24,7 +24,6 @@ namespace vMenuClient
     {
         private int LastVehicle = 0;
         private bool SwitchedVehicle = false;
-        private Dictionary<int, string> playerList = new Dictionary<int, string>();
         private List<int> deadPlayers = new List<int>();
         private float cameraRotationHeading = 0f;
 
@@ -68,12 +67,6 @@ namespace vMenuClient
         /// </summary>
         public FunctionsController()
         {
-            // Load the initial playerlist.
-            foreach (Player p in Players)
-            {
-                playerList.Add(p.Handle, p.Name);
-            }
-
             // Add all tick functions.
             Tick += GcTick;
             Tick += GeneralTasks;
@@ -90,7 +83,6 @@ namespace vMenuClient
             Tick += MiscSettings;
             Tick += MiscRecordingKeybinds;
             Tick += DeathNotifications;
-            Tick += JoinQuitNotifications;
             Tick += UpdateLocation;
             Tick += ManageCamera;
             Tick += PlayerBlipsControl;
@@ -594,31 +586,6 @@ namespace vMenuClient
                     {
                         if (!(it is MenuCheckboxItem))
                         {
-                            if (EventManager.CurrentlySwitchingWeather)
-                            {
-                                if (it.Enabled)
-                                {
-                                    it.Enabled = false;
-                                    it.LeftIcon = MenuItem.Icon.LOCK;
-                                    if (!it.Description.Contains("switching"))
-                                    {
-                                        it.Description += " Currently switching weather type, please wait before setting a new weather type.";
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                if (!it.Enabled)
-                                {
-                                    it.Enabled = true;
-                                    it.LeftIcon = MenuItem.Icon.NONE;
-                                    if (it.Description.Contains("switching"))
-                                    {
-                                        it.Description = it.Description.Replace(" Currently switching weather type, please wait before setting a new weather type.", "");
-                                    }
-                                }
-                            }
-
                             if (it == vMenuClient.WeatherOptions.weatherHashMenuIndex[(uint)GetNextWeatherTypeHashName()])
                             {
                                 it.RightIcon = MenuItem.Icon.TICK;
@@ -633,17 +600,17 @@ namespace vMenuClient
                     if (IsAllowed(Permission.WODynamic))
                     {
                         MenuCheckboxItem dynWeatherTmp = (MenuCheckboxItem)weatherMenu.GetMenuItems()[0];
-                        dynWeatherTmp.Checked = EventManager.dynamicWeather;
+                        dynWeatherTmp.Checked = EventManager.DynamicWeatherEnabled;
                         if (IsAllowed(Permission.WOBlackout))
                         {
                             MenuCheckboxItem blackoutTmp = (MenuCheckboxItem)weatherMenu.GetMenuItems()[1];
-                            blackoutTmp.Checked = EventManager.blackoutMode;
+                            blackoutTmp.Checked = EventManager.IsBlackoutEnabled;
                         }
                     }
                     else if (IsAllowed(Permission.WOBlackout))
                     {
                         MenuCheckboxItem blackoutTmp = (MenuCheckboxItem)weatherMenu.GetMenuItems()[0];
-                        blackoutTmp.Checked = EventManager.blackoutMode;
+                        blackoutTmp.Checked = EventManager.IsBlackoutEnabled;
                     }
                 }
             }
@@ -1143,51 +1110,27 @@ namespace vMenuClient
                 }
             }
         }
-        #region Join / Quit notifications
+        #region Join / Quit notifications (via events)
         /// <summary>
         /// Runs join/quit notification checks.
         /// </summary>
         /// <returns></returns>
-        private async Task JoinQuitNotifications()
+        [EventHandler("vMenu:PlayerJoinQuit")]
+        private void OnJoinQuitNotification(string playerName, string dropReason)
         {
             if (MainMenu.PermissionsSetupComplete && MainMenu.MiscSettingsMenu != null)
             {
                 // Join/Quit notifications
                 if (MainMenu.MiscSettingsMenu.JoinQuitNotifications && IsAllowed(Permission.MSJoinQuitNotifs))
                 {
-                    PlayerList plist = Players;
-                    Dictionary<int, string> pl = new Dictionary<int, string>();
-                    foreach (Player p in plist)
+                    if (dropReason == null)
                     {
-                        pl.Add(p.Handle, p.Name);
+                        Notify.Custom($"~g~<C>{GetSafePlayerName(playerName)}</C>~s~ joined the server.");
                     }
-                    await Delay(0);
-                    // new player joined.
-                    if (pl.Count > playerList.Count)
+                    else
                     {
-                        foreach (KeyValuePair<int, string> player in pl)
-                        {
-                            if (!playerList.Contains(player))
-                            {
-                                Notify.Custom($"~g~<C>{GetSafePlayerName(player.Value)}</C>~s~ joined the server.");
-                                await Delay(0);
-                            }
-                        }
+                        Notify.Custom($"~r~<C>{GetSafePlayerName(playerName)}</C>~s~ left the server. ~c~({GetSafePlayerName(dropReason)})");
                     }
-                    // player left.
-                    else if (pl.Count < playerList.Count)
-                    {
-                        foreach (KeyValuePair<int, string> player in playerList)
-                        {
-                            if (!pl.Contains(player))
-                            {
-                                Notify.Custom($"~r~<C>{GetSafePlayerName(player.Value)}</C>~s~ left the server.");
-                                await Delay(0);
-                            }
-                        }
-                    }
-                    playerList = pl;
-                    await Delay(100);
                 }
             }
         }
@@ -1209,7 +1152,6 @@ namespace vMenuClient
                     foreach (Player p in pl)
                     {
                         tmpiterator++;
-                        await Delay(0);
                         if (p.IsDead)
                         {
                             if (deadPlayers.Contains(p.Handle)) { return; }
@@ -1286,9 +1228,9 @@ namespace vMenuClient
                             }
                         }
                     }
-                    await Delay(50);
                 }
             }
+            await Task.FromResult(0);
         }
         #endregion
         #endregion
@@ -2026,7 +1968,7 @@ namespace vMenuClient
                         }
                     }
 
-                    while (Game.PlayerPed.IsDead || IsScreenFadedOut() || IsScreenFadingOut() || IsScreenFadingIn())
+                    while (Game.PlayerPed.IsDead || IsScreenFadedOut() || IsScreenFadingOut())
                     {
                         await Delay(0);
                     }
@@ -2201,7 +2143,7 @@ namespace vMenuClient
                     {
                         bool enabled = MainMenu.MiscSettingsMenu.ShowPlayerBlips && IsAllowed(Permission.MSPlayerBlips);
 
-                        foreach (Player p in MainMenu.PlayersList)
+                        foreach (IPlayer p in MainMenu.PlayersList)
                         {
                             // continue only if this player is valid.
                             if (p != null && NetworkIsPlayerActive(p.Handle) && p.Character != null && p.Character.Exists())
@@ -2214,7 +2156,7 @@ namespace vMenuClient
                                 // if blips are enabled and the player has permisisons to use them.
                                 if (enabled)
                                 {
-                                    if (p != Game.Player)
+                                    if (!p.IsLocal)
                                     {
                                         int ped = p.Character.Handle;
                                         int blip = GetBlipFromEntity(ped);
@@ -2343,10 +2285,11 @@ namespace vMenuClient
                 bool enabled = MainMenu.MiscSettingsMenu.MiscShowOverheadNames && IsAllowed(Permission.MSOverheadNames);
                 if (!enabled)
                 {
-                    for (var i = 0; i < 255; i++)
+                    foreach (KeyValuePair<Player, int> gamerTag in gamerTags)
                     {
-                        RemoveMpGamerTag(i);
+                        RemoveMpGamerTag(gamerTag.Value);
                     }
+                    gamerTags.Clear();
                 }
                 else
                 {
@@ -2704,6 +2647,19 @@ namespace vMenuClient
                             DrawTextOnScreen($"Hash {hashes}", 0f, 0f, 0.3f, Alignment.Center, 0);
                             ClearDrawOrigin();
                         }
+                        if (MainMenu.MiscSettingsMenu.ShowEntityNetOwners && v.IsOnScreen)
+                        {
+                            int netOwnerLocalId = NetworkGetEntityOwner(v.Handle);
+
+                            if (netOwnerLocalId != 0)
+                            {
+                                int playerServerId = GetPlayerServerId(netOwnerLocalId);
+                                string playerName = GetPlayerName(netOwnerLocalId);
+                                SetDrawOrigin(v.Position.X, v.Position.Y, v.Position.Z + 0.3f, 0);
+                                DrawTextOnScreen($"Owner ID {playerServerId} ({playerName})", 0f, 0f, 0.3f, Alignment.Center, 0);
+                                ClearDrawOrigin();
+                            }
+                        }
                     }
                 }
 
@@ -2736,6 +2692,20 @@ namespace vMenuClient
                             DrawTextOnScreen($"Hash {hashes}", 0f, 0f, 0.3f, Alignment.Center, 0);
                             ClearDrawOrigin();
                         }
+                        
+                        if (MainMenu.MiscSettingsMenu.ShowEntityNetOwners && p.IsOnScreen)
+                        {
+                            int netOwnerLocalId = NetworkGetEntityOwner(p.Handle);
+
+                            if (netOwnerLocalId != 0)
+                            {
+                                int playerServerId = GetPlayerServerId(netOwnerLocalId);
+                                string playerName = GetPlayerName(netOwnerLocalId);
+                                SetDrawOrigin(p.Position.X, p.Position.Y, p.Position.Z + 0.3f, 0);
+                                DrawTextOnScreen($"Owner ID {playerServerId} ({playerName})", 0f, 0f, 0.3f, Alignment.Center, 0);
+                                ClearDrawOrigin();
+                            }
+                        }
                     }
                 }
 
@@ -2767,6 +2737,20 @@ namespace vMenuClient
 
                             DrawTextOnScreen($"Hash {hashes}", 0f, 0f, 0.3f, Alignment.Center, 0);
                             ClearDrawOrigin();
+                        }
+                        
+                        if (MainMenu.MiscSettingsMenu.ShowEntityNetOwners && p.IsOnScreen)
+                        {
+                            int netOwnerLocalId = NetworkGetEntityOwner(p.Handle);
+
+                            if (netOwnerLocalId != 0)
+                            {
+                                int playerServerId = GetPlayerServerId(netOwnerLocalId);
+                                string playerName = GetPlayerName(netOwnerLocalId);
+                                SetDrawOrigin(p.Position.X, p.Position.Y, p.Position.Z + 0.3f, 0);
+                                DrawTextOnScreen($"Owner ID {playerServerId} ({playerName})", 0f, 0f, 0.3f, Alignment.Center, 0);
+                                ClearDrawOrigin();
+                            }
                         }
                     }
                 }
@@ -2861,9 +2845,9 @@ namespace vMenuClient
         {
             if (MainMenu.PermissionsSetupComplete && MainMenu.PersonalVehicleMenu != null && IsAllowed(Permission.PVLockDoors) && MainMenu.PersonalVehicleMenu.CurrentPersonalVehicle != null)
             {
-                if (!Game.PlayerPed.IsInVehicle(MainMenu.PersonalVehicleMenu.CurrentPersonalVehicle))
+                if (!Game.PlayerPed.IsInVehicle(MainMenu.PersonalVehicleMenu.CurrentPersonalVehicle) && !Game.PlayerPed.IsGettingIntoAVehicle)
                 {
-                    if (Game.PlayerPed.Position.DistanceToSquared(MainMenu.PersonalVehicleMenu.CurrentPersonalVehicle.Position) < 30.0f)
+                    if (Game.PlayerPed.Position.DistanceToSquared(MainMenu.PersonalVehicleMenu.CurrentPersonalVehicle.Position) < 650.0f)
                     {
                         if (Game.IsControlJustReleased(0, Control.VehicleHorn))
                         {

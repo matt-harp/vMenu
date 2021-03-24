@@ -1,12 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using MenuAPI;
 using Newtonsoft.Json;
 using CitizenFX.Core;
-using static CitizenFX.Core.UI.Screen;
 using static CitizenFX.Core.Native.API;
 using static vMenuClient.CommonFunctions;
 using static vMenuShared.PermissionsManager;
@@ -38,6 +35,7 @@ namespace vMenuClient
         public bool ShowPropModelDimensions { get; private set; } = false;
         public bool ShowEntityHandles { get; private set; } = false;
         public bool ShowEntityModels { get; private set; } = false;
+        public bool ShowEntityNetOwners { get; private set; } = false;
         public bool MiscRespawnDefaultCharacter { get; private set; } = UserDefaults.MiscRespawnDefaultCharacter;
         public bool RestorePlayerAppearance { get; private set; } = UserDefaults.MiscRestorePlayerAppearance;
         public bool RestorePlayerWeapons { get; private set; } = UserDefaults.MiscRestorePlayerWeapons;
@@ -119,6 +117,7 @@ namespace vMenuClient
             {
                 RightIcon = MenuItem.Icon.TICK
             };
+            MenuItem exportData = new MenuItem("Export/Import Data", "Coming soon (TM): the ability to import and export your saved data.");
             MenuCheckboxItem joinQuitNotifs = new MenuCheckboxItem("Join / Quit Notifications", "Receive notifications when someone joins or leaves the server.", JoinQuitNotifications);
             MenuCheckboxItem deathNotifs = new MenuCheckboxItem("Death Notifications", "Receive notifications when someone dies or gets killed.", DeathNotifications);
             MenuCheckboxItem nightVision = new MenuCheckboxItem("Toggle Night Vision", "Enable or disable night vision.", false);
@@ -128,6 +127,7 @@ namespace vMenuClient
             MenuCheckboxItem pedModelDimensions = new MenuCheckboxItem("Show Ped Dimensions", "Draws the model outlines for every ped that's currently close to you.", ShowPedModelDimensions);
             MenuCheckboxItem showEntityHandles = new MenuCheckboxItem("Show Entity Handles", "Draws the the entity handles for all close entities (you must enable the outline functions above for this to work).", ShowEntityHandles);
             MenuCheckboxItem showEntityModels = new MenuCheckboxItem("Show Entity Models", "Draws the the entity models for all close entities (you must enable the outline functions above for this to work).", ShowEntityModels);
+            MenuCheckboxItem showEntityNetOwners = new MenuCheckboxItem("Show Network Owners", "Draws the the entity net owner for all close entities (you must enable the outline functions above for this to work).", ShowEntityNetOwners);
             MenuSliderItem dimensionsDistanceSlider = new MenuSliderItem("Show Dimensions Radius", "Show entity model/handle/dimension draw range.", 0, 20, 20, false);
 
             MenuItem clearArea = new MenuItem("Clear Area", "Clears the area around your player (100 meters). Damage, dirt, peds, props, vehicles, etc. Everything gets cleaned up, fixed and reset to the default world state.");
@@ -405,6 +405,7 @@ namespace vMenuClient
                 developerToolsMenu.AddMenuItem(pedModelDimensions);
                 developerToolsMenu.AddMenuItem(showEntityHandles);
                 developerToolsMenu.AddMenuItem(showEntityModels);
+                developerToolsMenu.AddMenuItem(showEntityNetOwners);
                 developerToolsMenu.AddMenuItem(dimensionsDistanceSlider);
             }
 
@@ -480,6 +481,10 @@ namespace vMenuClient
                 else if (item == showEntityModels)
                 {
                     ShowEntityModels = _checked;
+                }
+                else if (item == showEntityNetOwners)
+                {
+                    ShowEntityNetOwners = _checked;
                 }
                 else if (item == enableTimeCycle)
                 {
@@ -575,6 +580,10 @@ namespace vMenuClient
             menu.AddMenuItem(hideHud);
             menu.AddMenuItem(lockCamX);
             menu.AddMenuItem(lockCamY);
+            if (MainMenu.EnableExperimentalFeatures)
+            {
+                menu.AddMenuItem(exportData);
+            }
             menu.AddMenuItem(saveSettings);
 
             // Handle checkbox changes.
@@ -690,8 +699,26 @@ namespace vMenuClient
             // Handle button presses.
             menu.OnItemSelect += (sender, item, index) =>
             {
+                // export data
+                if (item == exportData)
+                {
+                    MenuController.CloseAllMenus();
+                    var vehicles = GetSavedVehicles();
+                    var normalPeds = StorageManager.GetSavedPeds();
+                    var mpPeds = StorageManager.GetSavedMpPeds();
+                    var weaponLoadouts = WeaponLoadouts.GetSavedWeapons();
+                    var data = JsonConvert.SerializeObject(new
+                    {
+                        saved_vehicles = vehicles,
+                        normal_peds = normalPeds,
+                        mp_characters = mpPeds,
+                        weapon_loadouts = weaponLoadouts
+                    });
+                    SendNuiMessage(data);
+                    SetNuiFocus(true, true);
+                }
                 // save settings
-                if (item == saveSettings)
+                else if (item == saveSettings)
                 {
                     UserDefaults.SaveSettings();
                 }

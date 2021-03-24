@@ -389,27 +389,63 @@ namespace vMenuClient
         /// </summary>
         /// <param name="playerId"></param>
         /// <param name="inVehicle"></param>
-        public static async void TeleportToPlayer(int playerId, bool inVehicle = false)
+        public static async Task TeleportToPlayer(IPlayer player, bool inVehicle = false)
         {
             // If the player exists.
-            if (NetworkIsPlayerActive(playerId))
+            if (player.IsActive || player is InfinityPlayer)
             {
-                int playerPed = GetPlayerPed(playerId);
-                if (Game.PlayerPed.Handle == playerPed)
-                {
-                    Notify.Error("Sorry, you can ~r~~h~not~h~ ~s~teleport to yourself!");
-                    return;
-                }
+                Vector3 playerPos;
+                bool wasActive = true;
 
-                // Get the coords of the other player.
-                Vector3 playerPos = GetEntityCoords(playerPed, true);
+                if (player.IsActive)
+                {
+                    Ped playerPedObj = player.Character;
+                    if (Game.PlayerPed == playerPedObj)
+                    {
+                        Notify.Error("Sorry, you can ~r~~h~not~h~ ~s~teleport to yourself!");
+                        return;
+                    }
+
+                    // Get the coords of the other player.
+                    playerPos = GetEntityCoords(playerPedObj.Handle, true);
+                }
+                else
+                {
+                    playerPos = await MainMenu.RequestPlayerCoordinates(player.ServerId);
+                    wasActive = false;
+                }
 
                 // Then await the proper loading/teleporting.
                 await TeleportToCoords(playerPos);
 
+                // Wait until the player has been created.
+                while (player.Character == null)
+                {
+                    await Delay(0);
+                }
+
+                var playerId = player.Handle;
+                var playerPed = player.Character.Handle;
+
                 // If the player should be teleported inside the other player's vehcile.
                 if (inVehicle)
                 {
+                    // Wait until the target player vehicle has loaded, if they weren't active beforehand.
+                    if (!wasActive)
+                    {
+                        var startWait = GetGameTimer();
+
+                        while (!IsPedInAnyVehicle(playerPed, false))
+                        {
+                            await Delay(0);
+
+                            if ((GetGameTimer() - startWait) > 1500)
+                            {
+                                break;
+                            }
+                        }
+                    }
+
                     // Is the other player inside a vehicle?
                     if (IsPedInAnyVehicle(playerPed, false))
                     {
@@ -690,7 +726,7 @@ namespace vMenuClient
         /// <param name="player"></param>
         /// <param name="askUserForReason"></param>
         /// <param name="providedReason"></param>
-        public static async void KickPlayer(Player player, bool askUserForReason, string providedReason = "You have been kicked.")
+        public static async void KickPlayer(IPlayer player, bool askUserForReason, string providedReason = "You have been kicked.")
         {
             if (player != null)
             {
@@ -728,7 +764,7 @@ namespace vMenuClient
         /// </summary>
         /// <param name="player">Player to ban.</param>
         /// <param name="forever">Ban forever or ban temporarily.</param>
-        public static async void BanPlayer(Player player, bool forever)
+        public static async void BanPlayer(IPlayer player, bool forever)
         {
             string banReason = await GetUserInput(windowTitle: "Enter Ban Reason", defaultText: "Banned by staff.", maxInputLength: 200);
             if (!string.IsNullOrEmpty(banReason) && banReason.Length > 1)
@@ -786,7 +822,7 @@ namespace vMenuClient
         /// Kill player
         /// </summary>
         /// <param name="player"></param>
-        public static void KillPlayer(Player player) => TriggerServerEvent("vMenu:KillPlayer", player.ServerId);
+        public static void KillPlayer(IPlayer player) => TriggerServerEvent("vMenu:KillPlayer", player.ServerId);
 
         /// <summary>
         /// Kill yourself.
@@ -901,12 +937,12 @@ namespace vMenuClient
         /// Summon player.
         /// </summary>
         /// <param name="player"></param>
-        public static void SummonPlayer(Player player) => TriggerServerEvent("vMenu:SummonPlayer", player.ServerId);
+        public static void SummonPlayer(IPlayer player) => TriggerServerEvent("vMenu:SummonPlayer", player.ServerId);
         #endregion
 
         #region Spectate function
         private static int currentlySpectatingPlayer = -1;
-        public static async void SpectatePlayer(Player player, bool forceDisable = false)
+        public static async void SpectatePlayer(IPlayer player, bool forceDisable = false)
         {
             if (forceDisable)
             {
@@ -914,6 +950,11 @@ namespace vMenuClient
             }
             else
             {
+                if (!player.IsActive)
+                {
+                    await TeleportToPlayer(player);
+                }
+
                 if (player.Handle == Game.Player.Handle)
                 {
                     if (NetworkIsInSpectatorMode())
@@ -934,12 +975,17 @@ namespace vMenuClient
                 {
                     if (NetworkIsInSpectatorMode())
                     {
-                        if (currentlySpectatingPlayer != player.Handle)
+                        if (currentlySpectatingPlayer != player.Handle && player.Character != null)
                         {
                             DoScreenFadeOut(500);
                             while (IsScreenFadingOut()) await Delay(0);
-                            NetworkSetInSpectatorMode(false, 0);
-                            NetworkSetInSpectatorMode(true, player.Character.Handle);
+
+                            if (player.Character != null)
+                            {
+                                NetworkSetInSpectatorMode(false, 0);
+                                NetworkSetInSpectatorMode(true, player.Character.Handle);
+                            }
+
                             DoScreenFadeIn(500);
                             Notify.Success($"You are now spectating ~g~<C>{GetSafePlayerName(player.Name)}</C>~s~.", false, true);
                             currentlySpectatingPlayer = player.Handle;
@@ -956,13 +1002,21 @@ namespace vMenuClient
                     }
                     else
                     {
-                        DoScreenFadeOut(500);
-                        while (IsScreenFadingOut()) await Delay(0);
-                        NetworkSetInSpectatorMode(false, 0);
-                        NetworkSetInSpectatorMode(true, player.Character.Handle);
-                        DoScreenFadeIn(500);
-                        Notify.Success($"You are now spectating ~g~<C>{GetSafePlayerName(player.Name)}</C>~s~.", false, true);
-                        currentlySpectatingPlayer = player.Handle;
+                        if (player.Character != null)
+                        {
+                            DoScreenFadeOut(500);
+                            while (IsScreenFadingOut()) await Delay(0);
+
+                            if (player.Character != null)
+                            {
+                                NetworkSetInSpectatorMode(false, 0);
+                                NetworkSetInSpectatorMode(true, player.Character.Handle);
+                            }
+
+                            DoScreenFadeIn(500);
+                            Notify.Success($"You are now spectating ~g~<C>{GetSafePlayerName(player.Name)}</C>~s~.", false, true);
+                            currentlySpectatingPlayer = player.Handle;
+                        }
                     }
                 }
             }
@@ -1224,9 +1278,38 @@ namespace vMenuClient
             // If mod info about the vehicle was specified, check if it's not null.
             if (saveName != null)
             {
-                // Set the modkit so we can modify the car.
-                SetVehicleModKit(vehicle.Handle, 0);
+                ApplyVehicleModsDelayed(vehicle, vehicleInfo, 500);
+            }
 
+            // Set the previous vehicle to the new vehicle.
+            _previousVehicle = vehicle;
+            //vehicle.Speed = speed; // retarded feature that randomly breaks for no fucking reason
+            if (!vehicle.Model.IsTrain) // to be extra fucking safe
+            {
+                // workaround of retarded feature above:
+                SetVehicleForwardSpeed(vehicle.Handle, speed);
+            }
+            vehicle.CurrentRPM = rpm;
+
+            await Delay(1); // Mandatory delay - without it radio station will not set properly
+            
+            // Set the radio station to default set by player in Vehicle Menu
+            vehicle.RadioStation = (RadioStation)UserDefaults.VehicleDefaultRadio;
+
+            // Discard the model.
+            SetModelAsNoLongerNeeded(vehicleHash);
+        }
+
+        /// <summary>
+        /// Waits for the given delay before applying the vehicle mods
+        /// </summary>
+        /// <param name="vehicle"></param>
+        /// <param name="vehicleInfo"></param>
+        private static async void ApplyVehicleModsDelayed(Vehicle vehicle, VehicleInfo vehicleInfo, int delay)
+        {
+            if (vehicle != null && vehicle.Exists())
+            {
+                vehicle.Mods.InstallModKit();
                 // set the extras
                 foreach (var extra in vehicleInfo.extras)
                 {
@@ -1257,33 +1340,35 @@ namespace vMenuClient
 
                 SetVehicleWindowTint(vehicle.Handle, vehicleInfo.windowTint);
 
-                foreach (var mod in vehicleInfo.mods)
-                {
-                    SetVehicleMod(vehicle.Handle, mod.Key, mod.Value, vehicleInfo.customWheels);
-                }
+                vehicle.CanTiresBurst = !vehicleInfo.bulletProofTires;
+
+                SetVehicleEnveffScale(vehicle.Handle, vehicleInfo.enveffScale);
+
+                VehicleOptions._SetHeadlightsColorOnVehicle(vehicle, vehicleInfo.headlightColor);
+
                 vehicle.Mods.NeonLightsColor = System.Drawing.Color.FromArgb(red: vehicleInfo.colors["neonR"], green: vehicleInfo.colors["neonG"], blue: vehicleInfo.colors["neonB"]);
                 vehicle.Mods.SetNeonLightsOn(VehicleNeonLight.Left, vehicleInfo.neonLeft);
                 vehicle.Mods.SetNeonLightsOn(VehicleNeonLight.Right, vehicleInfo.neonRight);
                 vehicle.Mods.SetNeonLightsOn(VehicleNeonLight.Front, vehicleInfo.neonFront);
                 vehicle.Mods.SetNeonLightsOn(VehicleNeonLight.Back, vehicleInfo.neonBack);
 
-                vehicle.CanTiresBurst = !vehicleInfo.bulletProofTires;
+                void DoMods()
+                {
+                    vehicleInfo.mods.ToList().ForEach(mod =>
+                    {
+                        if (vehicle != null && vehicle.Exists())
+                            SetVehicleMod(vehicle.Handle, mod.Key, mod.Value, vehicleInfo.customWheels);
+                    });
+                }
 
-                VehicleOptions._SET_VEHICLE_HEADLIGHTS_COLOR(vehicle, vehicleInfo.headlightColor);
+                DoMods();
+                // Performance mods require a delay after setting the modkit,
+                // so we just do it once first so all the visual mods load instantly,
+                // and after a small delay we do it again to make sure all performance
+                // mods have also loaded.
+                await Delay(delay);
+                DoMods();
             }
-
-            // Set the previous vehicle to the new vehicle.
-            _previousVehicle = vehicle;
-            //vehicle.Speed = speed; // retarded feature that randomly breaks for no fucking reason
-            if (!vehicle.Model.IsTrain) // to be extra fucking safe
-            {
-                // workaround of retarded feature above:
-                SetVehicleForwardSpeed(vehicle.Handle, speed);
-            }
-            vehicle.CurrentRPM = rpm;
-
-            // Discard the model.
-            SetModelAsNoLongerNeeded(vehicleHash);
         }
         #endregion
         #endregion
@@ -1315,6 +1400,7 @@ namespace vMenuClient
             public bool xenonHeadlights;
             public bool bulletProofTires;
             public int headlightColor;
+            public float enveffScale;
         };
         #endregion
 
@@ -1408,7 +1494,8 @@ namespace vMenuClient
                         windowTint = (int)veh.Mods.WindowTint,
                         xenonHeadlights = IsToggleModOn(veh.Handle, 22),
                         bulletProofTires = !veh.CanTiresBurst,
-                        headlightColor = VehicleOptions._GET_VEHICLE_HEADLIGHTS_COLOR(veh)
+                        headlightColor = VehicleOptions._GetHeadlightsColorFromVehicle(veh),
+                        enveffScale = GetVehicleEnveffScale(veh.Handle)
                     };
 
                     #endregion
@@ -2513,7 +2600,7 @@ namespace vMenuClient
                     if (ignoreSettingsAndPerms || IsAllowed(w.Perm))
                     {
                         // Give the weapon
-                        GiveWeaponToPed(Game.PlayerPed.Handle, w.Hash, w.CurrentAmmo > -1 ? w.CurrentAmmo: w.GetMaxAmmo, false, false);
+                        GiveWeaponToPed(Game.PlayerPed.Handle, w.Hash, w.CurrentAmmo > -1 ? w.CurrentAmmo : w.GetMaxAmmo, false, false);
 
                         // Add components
                         if (w.Components.Count > 0)
@@ -2542,7 +2629,7 @@ namespace vMenuClient
 
                         if (w.CurrentAmmo > 0)
                         {
-                            int ammo = w.CurrentAmmo; 
+                            int ammo = w.CurrentAmmo;
                             if (w.CurrentAmmo > w.GetMaxAmmo)
                             {
                                 ammo = w.GetMaxAmmo;
@@ -3046,6 +3133,12 @@ namespace vMenuClient
         public static void PrivateMessage(string source, string message) => PrivateMessage(source, message, false);
         public static async void PrivateMessage(string source, string message, bool sent)
         {
+            MainMenu.PlayersList.RequestPlayerList();
+            await MainMenu.PlayersList.WaitRequested();
+
+            string name = MainMenu.PlayersList.ToList()
+                .Find(plr => plr.ServerId.ToString() == source)?.Name ?? "**Invalid**";
+
             if (MainMenu.MiscSettingsMenu == null || MainMenu.MiscSettingsMenu.MiscDisablePrivateMessages)
             {
                 if (!(sent && source == Game.Player.ServerId.ToString()))
@@ -3076,22 +3169,22 @@ namespace vMenuClient
                     string headshotTxd = GetPedheadshotTxdString(headshotHandle);
                     if (sent)
                     {
-                        Notify.CustomImage(headshotTxd, headshotTxd, message, $"<C>{GetSafePlayerName(sourcePlayer.Name)}</C>", "Message Sent", true, 1);
+                        Notify.CustomImage(headshotTxd, headshotTxd, message, $"<C>{GetSafePlayerName(name)}</C>", "Message Sent", true, 1);
                     }
                     else
                     {
-                        Notify.CustomImage(headshotTxd, headshotTxd, message, $"<C>{GetSafePlayerName(sourcePlayer.Name)}</C>", "Message Received", true, 1);
+                        Notify.CustomImage(headshotTxd, headshotTxd, message, $"<C>{GetSafePlayerName(name)}</C>", "Message Received", true, 1);
                     }
                 }
                 else
                 {
                     if (sent)
                     {
-                        Notify.Custom($"PM From: <C>{GetSafePlayerName(sourcePlayer.Name)}</C>. Message: {message}");
+                        Notify.Custom($"PM From: <C>{GetSafePlayerName(name)}</C>. Message: {message}");
                     }
                     else
                     {
-                        Notify.Custom($"PM To: <C>{GetSafePlayerName(sourcePlayer.Name)}</C>. Message: {message}");
+                        Notify.Custom($"PM To: <C>{GetSafePlayerName(name)}</C>. Message: {message}");
                     }
                 }
                 UnregisterPedheadshot(headshotHandle);
